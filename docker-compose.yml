@@ -1,13 +1,6 @@
 services:
-  app:
-    build: .
-    container_name: app
-    ports:
-      - "3000:3000"
-    env_file: .env
   postgres:
     image: pgvector/pgvector:0.6.0-pg16
-    container_name: postgres
     ports:
       - "5433:5432"
     env_file: .env
