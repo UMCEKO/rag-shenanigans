@@ -1,9 +1,10 @@
 import os.path
 import sys
 
+import openai
 import pymupdf
 
-from app.core.postgres import prep_db
+from app.core.postgres import prep_db, pg_client
 from app.utils.embedding import batch_for_embeddings, convert_batches_to_embedding, apply_embedded_document_to_db
 from app.utils.parse_pdf import parse_pdf
 
@@ -37,5 +38,80 @@ def main():
         apply_embedded_document_to_db(embedded_doc)
         print(f"Successfully parsed and inserted {len(doc_details.pages)} pages")
     elif mode == "chat":
-        print("Chat mode is not yet implemented")
-        sys.exit(0)
+        cursor = pg_client.cursor()
+        cursor.execute("""
+        SELECT id, name, page_count FROM documents
+        """)
+        docs = cursor.fetchall()
+        cursor.close()
+        if len(docs) == 0:
+            print("You do not have any docs converted to embeddings yet. Exiting.")
+            exit(0)
+        doc_id_list: list[str] = []
+        print("----- Available docs -----")
+        for doc in docs:
+            (document_id, document_name, page_count) = doc
+            print(f"{document_id}\t({page_count} pages)\t{document_name}")
+            doc_id_list.append(str(document_id))
+
+        current_doc_id: str = ""
+        while current_doc_id not in doc_id_list:
+            current_doc_id = input("Please select a document (id of the document at the left side): ")
+        parsed_doc_id = int(current_doc_id)
+        message_history = []
+        MAX_HISTORY = 10
+        while True:
+            prompt = input("User > ")
+
+            embedding: list[float] = openai.embeddings.create(
+                input=prompt,
+                model="text-embedding-3-small",
+            ).model_dump()["data"][0]["embedding"]
+
+            cursor = pg_client.cursor()
+
+            cursor.execute("""
+            SELECT contents FROM pages WHERE document_id = %s ORDER BY embeddings <=> %s::vector LIMIT 5
+            """, (parsed_doc_id, embedding))
+
+
+            contents = [doc[0] for doc in cursor.fetchall()]
+
+            response = openai.chat.completions.create(
+                model="gpt-4o-mini",
+                messages=[
+                    {
+                        "role": "system",
+                        "content": "You are an AI assistant that answers questions based only on the context provided. Be accurate, concise, and do not invent information."
+                    },
+                    *message_history,
+                    {
+                        "role": "user",
+                        "content": f"Context:\n{'\n\n'.join(contents)}\n\n\n\nQuestion: {prompt}"
+                    }
+                ],
+                stream=True
+            )
+
+            message_history.append({
+                "role": "user",
+                "content": prompt
+            })
+
+
+            assistant_message = ""
+            print("Assistant > ", end=" ", flush=True)
+            for chunk in response:
+                token = chunk.choices[0].delta.content
+                if token:
+                    assistant_message += token
+                    print(token, end="", flush=True)
+
+            print("\n")
+            message_history.append({
+                "role": "assistant",
+                "content": assistant_message
+            })
+
+            if len(message_history) > MAX_HISTORY:
+                message_history = message_history[-MAX_HISTORY:]
