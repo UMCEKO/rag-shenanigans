@@ -8,6 +8,7 @@ from app.core.postgres import prep_db, pg_client
 from app.utils.embedding import batch_for_embeddings, convert_batches_to_embedding, apply_embedded_document_to_db
 from app.utils.parse_pdf import parse_pdf
 
+MAX_HISTORY = 10
 
 def main():
     if len(sys.argv) < 2:
@@ -59,7 +60,7 @@ def main():
             current_doc_id = input("Please select a document (id of the document at the left side): ")
         parsed_doc_id = int(current_doc_id)
         message_history = []
-        MAX_HISTORY = 10
+
         while True:
             prompt = input("User > ")
 
@@ -71,12 +72,12 @@ def main():
             cursor = pg_client.cursor()
 
             cursor.execute("""
-            SELECT contents FROM pages WHERE document_id = %s ORDER BY embeddings <=> %s::vector LIMIT 5
-            """, (parsed_doc_id, embedding))
+            SELECT contents, page_number, 1 - (embeddings <=> %s::vector) AS similarity FROM pages WHERE document_id = %s ORDER BY embeddings <=> %s::vector LIMIT 5
+            """, (embedding, parsed_doc_id, embedding))
 
 
-            contents = [doc[0] for doc in cursor.fetchall()]
-
+            contents = [f"Similarity: {doc[2]}\nPage: {doc[1]}\nPage Content: {doc[0]}" for doc in cursor.fetchall()]
+            context = '\n\n'.join(contents)
             response = openai.chat.completions.create(
                 model="gpt-4o-mini",
                 messages=[
@@ -87,12 +88,12 @@ def main():
                     *message_history,
                     {
                         "role": "user",
-                        "content": f"Context:\n{'\n\n'.join(contents)}\n\n\n\nQuestion: {prompt}"
+                        "content": f"Context:\n{context}\n\n\n\nQuestion: {prompt}"
                     }
                 ],
                 stream=True
             )
-
+            print(context + "\n\n\n")
             message_history.append({
                 "role": "user",
                 "content": prompt
