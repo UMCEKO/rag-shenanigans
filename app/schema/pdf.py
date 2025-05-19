@@ -13,4 +13,6 @@ class BatchedDocumentDetails(BaseModel):
     batches: list[list[PageDetails]]
     page_count: int
     document_name: str
+    pages: list[PageDetails]
+
 

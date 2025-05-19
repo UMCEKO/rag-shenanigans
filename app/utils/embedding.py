@@ -43,14 +43,15 @@ def batch_for_embeddings(doc_details: DocumentDetails) -> BatchedDocumentDetails
     return BatchedDocumentDetails(
         document_name=doc_details.document_name,
         page_count=doc_details.page_count,
-        batches=batches
+        batches=batches,
+        pages=doc_details.pages
     )
 
 def apply_embedded_document_to_db(embedded_document: EmbeddedDocumentDetails):
     cursor = pg_client.cursor()
     cursor.execute("""
         INSERT INTO documents(name, page_count) VALUES (%s, %s) RETURNING id
-        """, (embedded_document.name, embedded_document.page_count))
+        """, (embedded_document.document_name, embedded_document.page_count))
     document_id = cursor.fetchone()[0]
     # Finally, we insert the pages to the database.
     for embedding_info in embedded_document.embedded_pages:
