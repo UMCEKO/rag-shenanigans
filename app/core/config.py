@@ -2,13 +2,7 @@ import os
 
 import dotenv
 
-
 dotenv.load_dotenv()
-
-# Non-used for now
-
-PORT = int(os.getenv("PORT", "3000"))
-HOST = os.getenv("HOST", "0.0.0.0")
 
 # Postgres that supports vector extension
 
